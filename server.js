@@ -5,49 +5,60 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
-const generateJwtSecret = require('./jwtSecretGenerator'); // Import JWT secret generator
+
+const User = require('./models/User'); // Import the User model
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Generate JWT secret
 const jwtSecret = process.env.JWT_SECRET;
-
-// Output the generated JWT secret
-console.log('Generated JWT secret:', jwtSecret);
-
-// Replace <username>, <password>, and <dbname> with your actual MongoDB Atlas credentials and database name.
 const mongoURI = process.env.MONGO_URI;
 
-mongoose.connect(mongoURI, { 
-    useNewUrlParser: true, 
-    useUnifiedTopology: true 
+// Connect to MongoDB
+mongoose.connect(mongoURI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
 })
-.then(() => console.log('Connected to MongoDB Atlas'))
-.catch(error => console.error('Error connecting to MongoDB Atlas:', error));
-
-const userSchema = new mongoose.Schema({
-    username: String,
-    email: String,
-    password: String,
-});
-
-const User = mongoose.model('User', userSchema);
+    .then(() => console.log('Connected to MongoDB Atlas'))
+    .catch(error => console.error('Error connecting to MongoDB Atlas:', error));
 
 // Register a new user
 app.post('/register', async (req, res) => {
     try {
         const { username, email, password } = req.body;
+
+        // Example: Validate username length (minimum 3 characters)
+        if (username.length < 3) {
+            return res.status(400).send('Username must be at least 3 characters long.');
+        }
+
+        // Example: Validate email format using a regex pattern
+        const emailRegex = /.+@.+\..+/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).send('Please enter a valid email address.');
+        }
+
+        // Hash the password using bcrypt
         const hashedPassword = await bcrypt.hash(password, 10);
+
+        // Create a new User instance
         const user = new User({ username, email, password: hashedPassword });
+
+        // Save the user to the database
         await user.save();
-        res.status(201).send('User registered');
+
+        // Respond with a success message
+        res.status(201).send('User registered successfully.');
     } catch (error) {
+        // Log the error for debugging purposes
         console.error('Error registering user:', error);
-        res.status(500).send('Error registering user');
+
+        // Respond with an error message
+        res.status(500).send('Error registering user. Please try again later.');
     }
 });
+
 
 // User login endpoint
 app.post('/login', async (req, res) => {
@@ -57,12 +68,12 @@ app.post('/login', async (req, res) => {
         if (!user) {
             return res.status(400).send('User not found');
         }
-        
+
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
             return res.status(400).send('Invalid password');
         }
-        
+
         const token = jwt.sign({ userId: user._id }, jwtSecret);
         res.send({ token });
     } catch (error) {
@@ -71,30 +82,47 @@ app.post('/login', async (req, res) => {
     }
 });
 
-
-
-// Reset user password endpoint
+// User reset password endpoint
 app.post('/reset-password', async (req, res) => {
     try {
         const { email, newPassword } = req.body;
+
+        // Hash the new password using bcrypt
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        const result = await User.updateOne({ email }, { password: hashedPassword });
-        
-        if (result.nModified === 1) {
-            res.send('Password reset successfully');
-        } else {
-            const user = await User.findOne({ email });
-            if (!user) {
-                res.status(404).send('User not found');
-            } else {
-                res.status(500).send('Password update failed');
-            }
+
+        // Ensure the email is in the same case format as stored in the DB
+        const emailLowerCase = email.toLowerCase();
+
+
+        // Update the user's password in the database
+        const result = await User.updateOne({ email: emailLowerCase }, { $set: { password: hashedPassword } });
+        console.log('Update result:', result);
+
+        // Check if the password was successfully updated
+        if (result.modifiedCount === 1) {
+            const updatedUser = await User.findOne({ email: emailLowerCase });
+            console.log('Updated user:', updatedUser);
+            return res.send('Password reset successfully');
         }
+
+        // If no password was modified, check if the user exists
+        const user = await User.findOne({ email: emailLowerCase });
+        if (!user) {
+            console.log('User not found:', emailLowerCase);
+            return res.status(404).send('User not found');
+        }
+
+        // If there was an unexpected issue with updating the password
+        console.error('Password update failed for:', emailLowerCase, error);
+
+        return res.status(500).send('Password update failed');
     } catch (error) {
+        // Handle any errors that occur during password reset
         console.error('Error resetting password:', error);
-        res.status(500).send('Error resetting password');
+        return res.status(500).send('Error resetting password');
     }
 });
+
 
 // Get all users
 app.get('/users', async (req, res) => {
@@ -111,7 +139,7 @@ app.get('/users', async (req, res) => {
 app.put('/users/:id', async (req, res) => {
     const userId = req.params.id;
     const { username, email } = req.body;
-    
+
     try {
         const updatedUser = await User.findByIdAndUpdate(userId, { username, email }, { new: true });
         if (!updatedUser) {
@@ -127,7 +155,7 @@ app.put('/users/:id', async (req, res) => {
 // Delete a user by ID
 app.delete('/users/:id', async (req, res) => {
     const userId = req.params.id;
-    
+
     try {
         const deletedUser = await User.findByIdAndDelete(userId);
         if (!deletedUser) {

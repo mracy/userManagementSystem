@@ -1,4 +1,4 @@
-$(document).ready(function() {
+$(document).ready(function () {
     // Function to fetch users and populate the table
     function fetchUsers() {
         axios.get('http://localhost:3000/users')
@@ -66,6 +66,8 @@ $(document).ready(function() {
                 console.error('Reset Password Error:', error);
             });
     });
+
+
 
     // Initial fetch of users when the page loads
     fetchUsers();
